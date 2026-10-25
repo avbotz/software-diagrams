@@ -1,0 +1,135 @@
+...@../_config
+
+vars: {
+  d2-legend: {
+    step: Step or process
+    state: State it keeps {class: state}
+    files: Data on disk {class: files}
+    device: Device {class: device}
+    off: Off underwater {class: off}
+    a: "" {style.opacity: 0}
+    b: "" {style.opacity: 0}
+    a -> b: data
+    c: "" {style.opacity: 0}
+    d: "" {style.opacity: 0}
+    c -> d: "optional or alternative" {class: dashed}
+  }
+}
+
+classes: {
+  state: {shape: cylinder}
+  files: {shape: page}
+  off: {style.stroke-dash: 4; style.opacity: 0.5}
+  dashed: {style.stroke-dash: 4}
+}
+
+direction: down
+
+title: |md
+  # sub_vision with the OAK-D Pro (proposal)
+  Keypoints and PnP estimate prop's pose. Stereo depth checks it, picks between ambiguous answers, refines it, and covers partial views.
+| {near: top-center}
+
+oak: OAK-D Pro {
+  color: "Color camera" {class: device}
+  mono: "Left and right mono cameras\nglobal shutter, 7.5 cm baseline" {class: device}
+  ir: "Dot projector, flood LED\nwater absorbs IR" {class: off}
+
+  depthai: "DepthAI pipeline, on the camera" {
+    stereo: "StereoDepth\npassive stereo, calibrated in water;\nconfidence threshold, left-right check"
+    sync: "Sync\nimage and depth from\nthe same moment"
+  }
+}
+
+models: "Prop models\nknown geometry: 3D keypoint\npositions, dimensions" {class: files}
+
+vision: sub_vision {
+  frame: Every frame {
+    model: "Keypoint model\nbox and keypoints for each prop"
+    depth: "Depth sampling\nmedians, not means, over a small patch\njust inside the prop (not on an edge),\na box or a mask"
+    pnp: "1 · Candidate poses\nsolvePnP with IPPE; a planar prop\ngives two (the flip ambiguity)"
+    pick: "2 · Pick a candidate\npredict depth at each keypoint, compare with stereo;\ntoo noisy to decide: gravity (roll, pitch) breaks the tie"
+    reject: "3 · Reject bad frames\nmedian depth difference over a threshold that\ngrows with range: a bad keypoint or the wrong object"
+    refine: "4 · Refine (close to mid range)\nkeypoints → 3D points with depth; minimize\nreprojection and depth error together\n(scipy.optimize.least_squares or Ceres)"
+    partial: "5 · Partial view, PnP fails\n2 keypoints + depth: position and yaw\n(roll, pitch from the IMU)\nbox + median depth: position only\nboth with a larger covariance"
+    weight: "6 · Weight by range\nstereo: σZ ≈ Z²·σd / (f·B)\nPnP: from the reprojection fit"
+    obstacle: "Obstacle check\nanything within 1 m ahead?\nno prop model needed"
+
+    trust: |md
+      **Stereo depth is good for**
+      - mid range on textured props: torpedo boards and
+        bins with printed images (fit a plane in the mask)
+      - sanity-checking PnP and picking its flipped solution
+      - range when keypoints fail: occlusion, half in frame
+      - obstacle checks
+
+      **and weak**
+      - far away: error grows with Z² on a 7.5 cm baseline
+      - thin PVC: gate legs, slalom pipes
+      - blank, low-texture surfaces
+      - very close, inside the minimum depth
+    |
+
+    model -> pnp: 4 or more keypoints
+    model -> partial: fewer than 4
+    pnp -> pick: two candidates
+    pick -> reject: pose
+    reject -> refine: close to mid range {class: dashed}
+    reject -> weight: pose
+    refine -> weight: refined pose {class: dashed}
+    partial -> weight: partial pose
+    depth -> pick
+    depth -> reject
+    depth -> refine
+    depth -> partial
+    depth -> weight: stereo range
+  }
+
+  tracker: "Prop tracker, one per prop: where is the gate?\na few dozen lines, not a second EKF" {
+    transform: "Into the odom frame\nwith the sub's pose"
+    gate: "Gate\nreject a measurement far\nfrom the current estimate"
+    average: "Weighted average\neach measurement by\nhow much it's trusted"
+    estimate: "Prop estimate\nposition and yaw (props don't move),\ncovariance, times seen" {class: state}
+
+    why: |md
+      **Why not act on raw detections**
+      - Jitter: single-frame pose bounces, yaw most of all
+      - Memory: a prop out of frame (turned away, too close,
+        a bin under the forward camera) is still there
+      - Confidence: covariance and times seen
+      - Outliers: the gate drops a false positive
+    |
+
+    transform -> gate -> average -> estimate
+    estimate -> gate: current estimate
+  }
+
+  frame.weight -> tracker.transform: "PnP pose and stereo range,\neach with a covariance"
+}
+
+ekf: "ekf_filter_node (robot_localization)\nwhere is the sub?"
+mission: "sub_mission\nbehavior trees"
+
+pool: |md
+  **Pool tests, by hand**
+  - Calibrate the stereo pair in water, or its depth is wrong underwater.
+  - Put each prop at 1, 2, 3, 4 and 5 m and record stereo and PnP range against a tape measure:
+    that sets where step 6 switches from one to the other.
+  - Log PnP range against stereo range on every test. A constant % offset between them means the
+    underwater calibration or the prop dimensions in the prop models are wrong.
+| {near: bottom-center}
+
+oak.mono -> oak.depthai.stereo: "left, right"
+oak.color -> oak.depthai.sync: "color"
+oak.depthai.stereo -> oak.depthai.sync: "depth, aligned to color"
+
+oak.depthai.sync -> vision.frame.model: image
+oak.depthai.sync -> vision.frame.depth: depth
+oak.depthai.sync -> vision.frame.obstacle: depth
+
+models -> vision.frame.pnp: 3D keypoints
+ekf -> vision.tracker.transform: "odometry/filtered"
+vision.tracker.estimate -> ekf: "alternative: props as EKF-SLAM landmarks;\ncorrects DVL drift, but a wrong match\ncorrupts the sub's own state" {class: dashed}
+
+vision.tracker.estimate -> mission: "pose, covariance, times seen:\nlocalized well enough to\ncommit to a torpedo shot?"
+vision.frame.obstacle -> mission: something within 1 m

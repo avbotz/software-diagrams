@@ -8,6 +8,7 @@ AVBotz software diagrams, written in [D2](https://d2lang.com) and laid out with 
 | [thalassic/sub-control-internals](thalassic/sub-control-internals.d2) | Inside `sub_control`: the callbacks, the parameters, and each stage of the 50 Hz loop from arming to thrust allocation |
 | [thalassic/deployment-current](thalassic/deployment-current.d2) | How the stack gets onto the Jetson and runs there today: a git checkout with its pixi environment, built and started by hand |
 | [thalassic/deployment-docker](thalassic/deployment-docker.d2) | A proposal: the same stack as one image built in CI, run on the Jetson with Docker Compose |
+| [thalassic/sub_vision](thalassic/sub_vision.d2) | A proposal: prop poses from the OAK-D Pro, with keypoints and PnP checked and refined by underwater stereo depth, then a tracker per prop for the behavior trees |
 
 ![Marlin V3 ROS graph](https://avbotz.github.io/software-diagrams/thalassic/vehicle-ros-graph.svg)
 
@@ -24,14 +25,14 @@ That installs the d2 pinned in `mise.toml`, checked against the checksums in `mi
 ## Working on a diagram
 
 ```sh
-mise run watch thalassic/vehicle-ros-graph.d2   #front-camera live preview in the browser
-mise run fmt                                     # format every .d2 file
-mise run render                                  # render every diagram to an SVG beside it
-mise run site                                    # build the website into _site/, as CI does
-mise run check                                   # what CI runs
+mise run watch thalassic/vehicle-ros-graph.d2  # live preview in the browser
+mise run fmt                                   # format every .d2 file
+mise run render                                # render every diagram to an SVG beside it
+mise run site                                  # build the website into _site/, as CI does
+mise run check                                 # what CI runs
 ```
 
-Commit only the `.d2`: SVGs are git-ignored, and the website is built from the diagrams on `main`. CI fails if a file is unformatted or a diagram does not compile.
+Commit only the `.d2`. SVGs are git-ignored and the website is built from the diagrams on `main`. CI fails if a file is unformatted.
 
 ## Conventions
 
