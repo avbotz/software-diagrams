@@ -1,0 +1,89 @@
+...@../_config
+...@_device-info
+
+vars: {
+  d2-legend: {
+    process: Process or service
+    files: Files on disk {class: files}
+    device: Device {class: device}
+    a: "" {style.opacity: 0}
+    b: "" {style.opacity: 0}
+    a -> b: "data, connection"
+    c: "" {style.opacity: 0}
+    d: "" {style.opacity: 0}
+    c -> d: "step run by hand" {class: manual}
+  }
+}
+
+classes: {
+  files: {shape: page}
+  manual: {style.stroke-dash: 4}
+}
+
+direction: down
+
+title: |md
+  # Deployment
+| {near: top-center}
+
+internet: Internet {
+  github: GitHub {
+    repo: "avbotz/thalassic\ncode, submodules,\npool-YYYY-MM-DD tags"
+    releases: "Releases\nONNX models" {class: files}
+    ci: "Actions CI \nlint, build, test,\nheadless sim"
+  }
+  channels: "Package channels, pinned by pixi.lock" {
+    robostack: "robostack-jazzy\nROS 2 Jazzy"
+    conda_forge: "conda-forge\ncompilers, CUDA 13.2 runtime"
+    isaac_forge: "isaac-forge\nTensorRT 10.16.2 for the Orin"
+  }
+}
+
+laptop: Developer laptop {
+  checkout: "thalassic checkout\ndefault pixi environment"
+  foxglove: "Foxglove\nteleop, tuning, vision panels"
+}
+
+vehicle: Marlin V3 {
+  ...@_vehicle-hardware
+
+  jetson: {
+    os: |md
+      **OS configuration** (`deploy/jetson/setup.sh`)
+      - netplan: ${jetson.ip}, MTU 9000 on ${jetson.interface}
+      - chrony: NTP server for the DVL and the down camera
+      - systemd: MAXN power mode, fan at full speed
+      - sysctl: 10 MB socket buffers for the GigE camera
+      - udev: ${maritime.dev}, ${imu.dev}, ${front-camera.dev}
+      - profile.d: `THALASSIC_DDS_PROFILE=vehicle`
+    | {shape: rectangle}
+
+    checkout: "~/thalassic, a git checkout" {
+      env: ".pixi/envs/jetson\nROS 2, TensorRT, CUDA runtime" {class: files}
+      weights: "weights/\n*.onnx from fetch-weights,\n*.engine from build-engines" {class: files}
+      missions: "src/sub_mission/resources/\nmission trees" {class: files}
+      bags: "bags/\ncopied off with rsync" {class: files}
+    }
+
+    stack: "pixi run -e jetson pool"
+  }
+}
+
+laptop.checkout -> internet.github.repo: git push
+internet.github.repo -> internet.github.ci: "push, pull request"
+
+internet.github.repo -> vehicle.jetson.checkout: "git pull --recurse-submodules" {class: manual}
+internet.channels -> vehicle.jetson.checkout.env: "pixi install --frozen -e jetson" {class: manual}
+internet.github.releases -> vehicle.jetson.checkout.weights: "fetch-weights" {class: manual}
+laptop.checkout -> vehicle.jetson.checkout.missions: "sync-mission: rsync,\nthen rebuild sub_mission" {class: manual}
+
+vehicle.jetson.checkout -> vehicle.jetson.stack: runs from
+vehicle.jetson.stack -> vehicle.jetson.checkout.bags: "record:=true"
+laptop.foxglove <-> vehicle.jetson.stack: "WebSocket :8765"
+
+vehicle.maritime <-> vehicle.jetson.stack: "USB (${maritime.dev})"
+vehicle.imu -> vehicle.jetson.stack: "USB (${imu.dev})"
+vehicle.front-camera -> vehicle.jetson.stack: "USB (${front-camera.dev})"
+vehicle.jetson.os -> vehicle.dvl: NTP
+vehicle.jetson.os -> vehicle.down-camera: NTP
+laptop <-> vehicle.switch: "Ethernet (DHCP)"

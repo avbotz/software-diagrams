@@ -1,0 +1,125 @@
+...@../_config
+
+vars: {
+  d2-legend: {
+    topic: Topic or service {class: topic}
+    code: Function or class
+    state: State it keeps {class: state}
+    a: "" {style.opacity: 0}
+    b: "" {style.opacity: 0}
+    a -> b: data
+    c: "" {style.opacity: 0}
+    d: "" {style.opacity: 0}
+    c -> d: "early exit, service call" {class: dashed}
+  }
+}
+
+classes: {
+  topic: {shape: queue}
+  state: {shape: cylinder}
+  dashed: {style.stroke-dash: 4}
+}
+
+direction: down
+
+title: |md
+  # sub_control internals
+  One node and one timer: trajectory generator → control law → thrust allocation, behind arming and the watchdogs.
+| {near: top-center}
+
+inputs: Inputs {
+  odom: odometry/filtered {class: topic}
+  imu: imu/data {class: topic}
+  altitude: altitude {class: topic}
+  tf: /tf_static {class: topic}
+  dvl: dvl/velocity {class: topic}
+  depth: odometry/depth {class: topic}
+  kill: kill_switch {class: topic}
+  setpoint: motion_setpoint {class: topic}
+  cmd_vel: cmd_vel {class: topic}
+  reset_pose: "~/reset_pose\n(std_srvs/Trigger)" {class: topic}
+  params: "parameters\ngains.yaml or gains_sim.yaml,\nros2 param set" {class: topic}
+}
+
+node: SubControl {
+  callbacks: Callbacks {
+    measurements: "odom, IMU, altitude callbacks\ndrop NaN/inf; gyro rotated into\nbase_link by the IMU's mount"
+    stamps: "DVL and depth subscriptions\nkeep only the stamp"
+    kill: "kill_callback\nengaged: disarm\nreleased: re-zero on arming"
+    setpoint: "motion_setpoint_callback\ndecode to MotionCommand;\nexpiry from timeout and stamp"
+    cmd_vel: "cmd_vel_callback\nall axes VELOCITY, expiring\nafter safety.cmd_vel_timeout"
+  }
+
+  state: "Latest measurements\nVehicleState, each stream's stamp,\nkilled / armed" {class: state}
+  apply: "apply_command()\nreject while killed or not armed;\nack the id in error and status"
+  pending: "Pending commands\n(held during a pose reset)" {class: state}
+
+  params: "ParamListener\ngenerate_parameter_library,\nsub_control_parameters.yaml"
+  apply_params: "apply_parameters()\ngains, vehicle model,\ntrajectory limits, power limit"
+  health: "update_health()\nthruster health → force bounds;\ncontrollable_axes() → axis weights"
+
+  run: "run(), at control_rate_hz (50 Hz)" {
+    arm: "1 · Arming\ntry_arm(): kill switch cycled since\nstartup; odom, IMU, depth fresh"
+    failsafe: "2 · Failsafe\nno odom for state_timeout or\nno IMU for attitude_timeout"
+    reset: "3 · Pose reset\nset_pose to the EKF; until it confirms (≤ 1 s):\nzero thrust after arming, last thrust on a rebase"
+    watchdogs: "4 · Feedback watchdogs\nno DVL: x/y passive · no depth: z passive\nno altitude: hold depth instead"
+    generator: "5 · ReferenceGenerator\nKEEP · POSITION · VELOCITY · HOLD · EFFORT\njerk-limited shaping (x/y together), leash"
+    controller: "6 · MotionController\na* = a_ref + Kd (ν_ref − ν) + Kp e + I\nτ = M a* + D(ν_ref) ν_ref + g_hold + ω × Jω − d_hat"
+    fixups: "7 · Wrench checks\nno depth: drop the buoyancy hold\nEFFORT axes: their effort · non-finite: off"
+    allocate: "8 · drive_thrusters()\nmin ‖W (B f − τ)‖² + ε ‖f‖², f within health × T200 range\n→ normalized commands → slew limit"
+
+    arm -> failsafe -> reset -> watchdogs -> generator -> controller -> fixups -> allocate
+    allocate -> controller: "achieved wrench\n(anti-windup, observer)"
+  }
+
+  diag: "diagnostic_updater, 1 Hz\narming · sensors · thrusters"
+}
+
+outputs: Outputs {
+  thrusters: control/thrusters {class: topic}
+  armed: "control/armed (latched)" {class: topic}
+  error: control/error {class: topic}
+  status: control/status {class: topic}
+  diagnostics: /diagnostics {class: topic}
+}
+
+ekf: "ekf_filter_node\n(robot_localization)"
+
+inputs.odom -> node.callbacks.measurements
+inputs.imu -> node.callbacks.measurements
+inputs.altitude -> node.callbacks.measurements
+inputs.tf -> node.callbacks.measurements: IMU mount
+inputs.dvl -> node.callbacks.stamps
+inputs.depth -> node.callbacks.stamps
+inputs.kill -> node.callbacks.kill
+inputs.setpoint -> node.callbacks.setpoint
+inputs.cmd_vel -> node.callbacks.cmd_vel
+inputs.reset_pose -> node.run.reset: rebase
+inputs.params -> node.params
+
+node.callbacks.measurements -> node.state
+node.callbacks.stamps -> node.state
+node.callbacks.kill -> node.state
+node.callbacks.setpoint -> node.apply: MotionCommand
+node.callbacks.cmd_vel -> node.apply: MotionCommand
+node.apply -> node.pending: during a pose reset
+node.apply -> node.run.generator
+node.pending -> node.run.reset: once it confirms
+node.state -> node.run: "pose, velocities, ages"
+
+node.params -> node.apply_params: validated change
+node.apply_params -> node.run.controller: "gains, model"
+node.apply_params -> node.run.generator: limits
+node.apply_params -> node.health
+node.health -> node.run.watchdogs: controllable axes
+node.health -> node.run.allocate: "bounds, axis weights"
+
+node.run.arm -> outputs.armed
+node.run.arm -> outputs.thrusters: zero {class: dashed}
+node.run.failsafe -> outputs.thrusters: zero {class: dashed}
+node.run.reset -> outputs.thrusters: "zero or last command" {class: dashed}
+node.run.reset -> ekf: "set_pose (x, y, yaw = 0)" {class: dashed}
+node.run.allocate -> outputs.thrusters: "8 commands, ±power_limit"
+node.run -> outputs.error: "per-axis error, command id"
+node.run -> outputs.status: "modes, reference, wrench, thrusters"
+node.diag -> outputs.diagnostics

@@ -1,0 +1,88 @@
+...@../_config
+...@_device-info
+
+vars: {
+  d2-legend: {
+    node: ROS node
+    device: Device {class: device}
+    a: "" {style.opacity: 0}
+    b: "" {style.opacity: 0}
+    a -> b: topic
+    c: "" {style.opacity: 0}
+    d: "" {style.opacity: 0}
+    c -> d: "service (client → server)" {class: service}
+  }
+}
+
+classes: {
+  service: {style.stroke-dash: 4}
+}
+
+direction: right
+
+title: |md
+  # Marlin V3 ROS graph
+  Nodes run in the `marlin_v3` namespace. Topic names are relative to `/marlin_v3`.
+| {near: top-center}
+
+devices: Devices {
+  imu: ${imu.name} {class: device}
+  dvl: ${dvl.name} {class: device}
+  maritime: ${maritime.name} {class: device}
+  front-camera: ${front-camera.name} {class: device}
+  down-camera: ${down-camera.name} {class: device}
+}
+
+drivers: Drivers {
+  imu: naviguider_imu_driver
+  dvl: waterlinked_dvl_driver
+  sub_low
+  front-camera: "logitech_c922_driver\n(usb_cam)"
+  down-camera: "down-camera\n(spinnaker_camera_driver)"
+}
+
+vision: Vision {
+  front: sub_vision
+  down: sub_vision_down
+}
+
+ekf: "ekf_filter_node\n(robot_localization)"
+control: sub_control
+mission: sub_mission
+foxglove: "foxglove_bridge"
+
+devices.imu -> drivers.imu: USB (${imu.dev})
+devices.dvl -> drivers.dvl: Ethernet (${dvl.ip})
+devices.maritime <-> drivers.sub_low: USB (${maritime.dev})
+devices.front-camera -> drivers.front-camera: USB (${front-camera.dev})
+devices.down-camera -> drivers.down-camera: Ethernet (${down-camera.ip})
+
+drivers.imu -> ekf: imu/data
+drivers.imu -> control: imu/data
+drivers.dvl -> ekf: dvl/velocity
+drivers.dvl -> control: "dvl/velocity, altitude"
+drivers.sub_low -> ekf: odometry/depth
+drivers.sub_low -> control: "odometry/depth, kill_switch"
+drivers.sub_low -> mission: kill_switch
+drivers.front-camera -> vision.front: front-camera/image_raw
+drivers.down-camera -> vision.down: down-camera/image_raw
+
+ekf -> control: odometry/filtered
+ekf -> mission: odometry/filtered
+vision.front -> mission: vision/detections
+vision.down -> mission: vision/detections_down
+
+mission -> control: motion_setpoint
+control -> mission: "control/armed, control/error"
+control -> drivers.sub_low: control/thrusters
+foxglove -> control: "cmd_vel, motion_setpoint"
+
+mission -> vision.front: load_model {class: service}
+mission -> vision.down: load_model {class: service}
+mission -> drivers.sub_low: "launch_torpedo, set_dropper" {class: service}
+control -> ekf: set_pose {class: service}
+
+not_shown: |md
+  Not shown: `/tf_static` from `static_transforms`, `/diagnostics` from every node to
+  `diagnostic_aggregator`, the bag recorder, and what Foxglove subscribes to.
+| {near: bottom-center}

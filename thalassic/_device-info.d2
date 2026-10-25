@@ -1,0 +1,36 @@
+vars: {
+  imu: {
+    name: "NaviGuider IMU"
+    dev: /dev/naviguider_imu
+  }
+  maritime: {
+    name: "maritime board (Raspberry Pi Pico)\nthrusters, depth, kill switch,\ntorpedoes, dropper"
+    dev: /dev/maritime
+  }
+  front-camera: {
+    name: "Logitech C922 (front)"
+    dev: /dev/front_camera
+  }
+  down-camera: {
+    name: "FLIR Blackfly S (down)"
+    ip: 192.168.5.249
+  }
+  dvl: {
+    name: "Water Linked DVL A50"
+    ip: 192.168.5.250
+  }
+  router: {
+    ip: 192.168.5.1
+    dhcp: ".10 - .100"
+  }
+  switch: {
+    cidr: 192.168.5.0/24
+  }
+  jetson: {
+    ip: 192.168.5.245
+    interface: end0
+    os: "Ubuntu 24.04"
+    jetpack: 7.2.1
+    cuda: 13
+  }
+}

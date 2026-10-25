@@ -1,0 +1,13 @@
+# Marlin V3's hardware and its network, spread into the vehicle by the deployment
+# diagrams, which fill in what runs on the Jetson. Those diagrams spread
+# _device-info at their root, for ${dvl.ip}.
+...@_devices
+
+switch: "Switch in the MEB\n${switch.cidr}"
+router: "Router\n${router.ip}, DHCP ${router.dhcp}" {class: device}
+jetson: "Jetson AGX Orin\nJetPack ${jetson.jetpack} (${jetson.os}, CUDA ${jetson.cuda})"
+
+dvl <-> switch: "Ethernet (${dvl.ip})"
+down-camera -> switch: "Ethernet, jumbo frames (${down-camera.ip})"
+router <-> switch
+switch <-> jetson: "Ethernet (${jetson.ip}, ${jetson.interface})"
