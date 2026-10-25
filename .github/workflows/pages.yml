@@ -18,17 +18,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
-      # Installs the d2 in mise.lock (the action adds --locked when there is a lockfile).
-      - uses: jdx/mise-action@v5.1.1
-        with:
-          version: 2026.8.16
+      - uses: jdx/mise-action@v5
 
       - name: Render every diagram into _site/
         run: mise run site
 
-      - uses: actions/upload-pages-artifact@v5.0.0
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
@@ -44,4 +41,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v5.0.1
+        uses: actions/deploy-pages@v5

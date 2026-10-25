@@ -15,12 +15,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
 
-      # Installs the d2 in mise.lock (the action adds --locked when there is a lockfile).
-      - uses: jdx/mise-action@v5.1.1
-        with:
-          version: 2026.8.16
+      - uses: jdx/mise-action@v5
 
-      - name: Formatting, and every render up to date
+      - name: Formatting
         run: mise run check
